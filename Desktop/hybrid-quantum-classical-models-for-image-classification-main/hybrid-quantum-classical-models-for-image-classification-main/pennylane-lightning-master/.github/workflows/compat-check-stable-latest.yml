@@ -1,0 +1,50 @@
+name: Compat Check w/PL - stable/latest
+
+on:
+  schedule:
+    - cron: "0 2 * * 1-5"  # Run daily at 3am Mon-Fri
+  workflow_dispatch:
+
+jobs:
+  tests_gpu_python:
+    name: Lightning Compatibility test (tests_gpu_python) - stable/latest
+    uses: ./.github/workflows/tests_gpu_python.yml
+    with:
+      lightning-version: stable
+      pennylane-version: latest
+    secrets: inherit
+  tests_lgpumpi_python:
+    name: Lightning Compatibility test (tests_lgpumpi_python) - stable/latest
+    uses: ./.github/workflows/tests_lgpumpi_python.yml
+    with:
+      lightning-version: stable
+      pennylane-version: latest
+    secrets: inherit
+  tests_lqcpu_python:
+    name: Lightning Compatibility test (tests_lqcpu_python) - stable/latest
+    uses: ./.github/workflows/tests_lqcpu_python.yml
+    with:
+      lightning-version: stable
+      pennylane-version: latest
+    secrets: inherit
+  tests_lkcpu_python:
+    name: Lightning Compatibility test (tests_lkcpu_python) - stable/latest
+    uses: ./.github/workflows/tests_lkcpu_python.yml
+    with:
+      lightning-version: stable
+      pennylane-version: latest
+    secrets: inherit
+  tests_lkcuda_python:
+    name: Lightning Compatibility test (tests_lkcuda_python) - stable/latest
+    uses: ./.github/workflows/tests_lkcuda_python.yml
+    with:
+      lightning-version: stable
+      pennylane-version: latest
+    secrets: inherit
+  tests_without_binary:
+    name: Lightning Compatibility test (tests_without_binary) - stable/latest
+    uses: ./.github/workflows/tests_without_binary.yml
+    with:
+      lightning-version: stable
+      pennylane-version: latest
+    secrets: inherit

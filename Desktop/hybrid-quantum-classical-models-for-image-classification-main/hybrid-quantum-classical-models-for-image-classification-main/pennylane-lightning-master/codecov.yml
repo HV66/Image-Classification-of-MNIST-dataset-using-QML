@@ -1,0 +1,13 @@
+fixes:
+  - "main/::"
+
+ignore:
+  - "pennylane_lightning/src/tests"
+  - "pennylane_lightning/src/gates/cpu_kernels/avx_common"
+
+codecov:
+  notify:
+    after_n_builds: 4
+
+comment:
+  after_n_builds: 4

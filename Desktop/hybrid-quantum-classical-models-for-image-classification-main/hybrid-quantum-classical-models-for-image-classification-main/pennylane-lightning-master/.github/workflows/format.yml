@@ -1,0 +1,44 @@
+name: Formatting check
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+
+concurrency:
+  group: format-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  format-python:
+    name: Format (Python)
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Checkout PennyLane-Lightning
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run:
+            python -m pip install -r requirements.txt
+
+      - name: Run isort & black --check
+        run: make format-python check=1 verbose=1
+
+  format-cpp:
+    name: Format (C++)
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: sudo apt update && sudo apt -y install python3 python3-pip python-is-python3 && python -m pip install -r requirements.txt
+
+      - name: Run formatter
+        run: PATH=$PATH:/home/ubuntu/.local/bin/:$(dirname $(which python3))/ ./bin/format --check ./pennylane_lightning/core/src

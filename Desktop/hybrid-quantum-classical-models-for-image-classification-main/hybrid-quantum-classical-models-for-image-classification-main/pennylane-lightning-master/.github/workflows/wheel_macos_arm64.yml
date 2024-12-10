@@ -1,0 +1,161 @@
+name: Wheel::MacOS::ARM
+
+# **What it does**: Builds python wheels for MacOS (11) architecture ARM 64 and store it as artifacts.
+#                   Python versions: 3.10, 3.11, 3.12.
+# **Why we have it**: To build wheels for pennylane-lightning installation.
+# **Who does it impact**: Wheels to be uploaded to PyPI.
+
+on:
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
+  push:
+    branches:
+      - master
+  release:
+    types: [published]
+  workflow_dispatch:
+
+env:
+  ARCHS: 'arm64'
+  PYTHON3_MIN_VERSION: "10"
+  PYTHON3_MAX_VERSION: "12"
+  MACOSX_DEPLOYMENT_TARGET: 12.0
+
+concurrency:
+  group: wheel_macos_arm64-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  mac-set-matrix-arm:
+    if: |
+      github.event_name != 'pull_request' ||
+      (github.event.pull_request.draft == false && contains(github.event.pull_request.labels.*.name, 'ci:build_wheels'))
+    timeout-minutes: 30
+    name: Set builder matrix
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout PennyLane-Lightning
+        uses: actions/checkout@v4
+
+      - name: Python version
+        id: pyver
+        run: |
+          if [[ ${{ github.event_name }} == 'pull_request' ]]; then
+            echo "python_version=$(python3 scripts/gen_pyver_matrix.py \
+              --min-version=3.${{ env.PYTHON3_MIN_VERSION }} \
+              --max-version=3.${{ env.PYTHON3_MAX_VERSION }})" >> $GITHUB_OUTPUT
+          else
+            echo "python_version=$(python3 scripts/gen_pyver_matrix.py \
+              --min-version=3.${{ env.PYTHON3_MIN_VERSION }} \
+              --max-version=3.${{ env.PYTHON3_MAX_VERSION }} --range)" >> $GITHUB_OUTPUT
+          fi
+
+    outputs:
+      python_version: ${{ steps.pyver.outputs.python_version }}
+
+  mac-wheels-arm64:
+    needs: [mac-set-matrix-arm]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-12]
+        arch: [arm64]
+        pl_backend: ["lightning_kokkos", "lightning_qubit"]
+        cibw_build: ${{fromJson(needs.mac-set-matrix-arm.outputs.python_version)}}
+    timeout-minutes: 30
+    name: macos-latest::arm64 - ${{ matrix.pl_backend }} (Python ${{ fromJson('{ "cp310-*":"3.10","cp311-*":"3.11","cp312-*":"3.12" }')[matrix.cibw_build] }})
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout PennyLane-Lightning
+        uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        name: Install Python
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: python -m pip install cibuildwheel~=2.20.0 tomlkit
+
+      - name: Configure pyproject.toml file
+        run: PL_BACKEND="${{ matrix.pl_backend }}" python scripts/configure_pyproject_toml.py
+
+      - name: Build wheels
+        env:
+          CIBW_BUILD: ${{ matrix.cibw_build }}
+
+          # MacOS specific build settings
+          CIBW_BEFORE_ALL_MACOS: |
+            brew uninstall --force oclint
+
+          # Python build settings
+          CIBW_BEFORE_BUILD: |
+            python -m pip install pybind11 ninja cmake~=3.27.0 setuptools scipy
+
+          CIBW_ENVIRONMENT: |
+            CMAKE_ARGS="-DCMAKE_CXX_COMPILER_TARGET=arm64-apple-macos11 -DCMAKE_SYSTEM_NAME=Darwin -DCMAKE_SYSTEM_PROCESSOR=ARM64 -DENABLE_OPENMP=OFF -DCMAKE_BUILD_TYPE=Release"
+
+          CIBW_BEFORE_TEST: |
+            python -m pip install -r requirements-tests.txt
+            if ${{ matrix.pl_backend == 'lightning_kokkos'}}
+            then
+              PL_BACKEND="lightning_qubit" python scripts/configure_pyproject_toml.py
+              SKIP_COMPILATION=True python -m pip install . -vv
+            fi
+          CIBW_TEST_COMMAND: |
+            DEVICENAME=`echo ${{ matrix.pl_backend }} | sed "s/_/./g"`
+            pl-device-test --device=${DEVICENAME} --skip-ops -x --tb=short --no-flaky-report
+
+          CIBW_BUILD_VERBOSITY: 3
+
+          CIBW_ARCHS_MACOS: ${{ matrix.arch }}
+
+        run: |
+          python -m cibuildwheel --output-dir wheelhouse
+
+      - name: Validate wheels
+        run: |
+          python -m pip install twine
+          python -m twine check ./wheelhouse/*.whl
+
+      - uses: actions/upload-artifact@v4
+        if: |
+          github.event_name == 'release' ||
+          github.event_name == 'workflow_dispatch' ||
+          github.ref == 'refs/heads/master'
+        with:
+          name: ${{ runner.os }}-wheels-${{ matrix.pl_backend }}-${{ fromJson('{ "cp310-*":"py310","cp311-*":"py311","cp312-*":"py312" }')[matrix.cibw_build] }}-${{ matrix.arch }}.zip
+          path: ./wheelhouse/*.whl
+          retention-days: 1
+          include-hidden-files: true
+
+  upload-pypi:
+    needs: [mac-set-matrix-arm, mac-wheels-arm64]
+    strategy:
+      matrix:
+        arch: [arm64]
+        pl_backend: ["lightning_qubit", "lightning_kokkos"]
+        cibw_build: ${{ fromJson(needs.mac-set-matrix-arm.outputs.python_version) }}
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'release' ||
+      github.ref == 'refs/heads/master'
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: macOS-wheels-${{ matrix.pl_backend }}-${{ fromJson('{ "cp310-*":"py310","cp311-*":"py311","cp312-*":"py312" }')[matrix.cibw_build] }}-${{ matrix.arch }}.zip
+          path: dist
+
+      - name: Upload wheels to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          user: __token__
+          password: ${{ ( matrix.pl_backend == 'lightning_qubit' ) && secrets.TEST_PYPI_API_TOKEN || secrets.TEST_PYPI_LKOKKOS_TOKEN }}
+          repository-url: https://test.pypi.org/legacy/
